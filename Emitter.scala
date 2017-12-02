@@ -24,7 +24,9 @@ class Emitter(filename:String) {
 
   def getJVMType(inType:Type):String = inType match {
     case IntType => "I"
+    case FloatType => "F"
     case StringType => "Ljava/lang/String;"
+    case BoolType => "Z"
     case VoidType => "V"
     case ArrayPointerType(t) => "["+getJVMType(t)
     case FunctionType(il,o) => "("+il.foldLeft("")(_+getJVMType(_))+")"+getJVMType(o)
@@ -32,6 +34,7 @@ class Emitter(filename:String) {
   }
   def getFullType(inType:Type):String = inType match {
     case IntType => "int"
+    case FloatType => "float"
     case StringType => "java/lang/String"
     case VoidType => "void"
   }
@@ -70,8 +73,10 @@ class Emitter(filename:String) {
 	*	@param typ the type of the constant
 	*/
 	def emitPUSHCONST(in:String, typ:Type, frame:Frame) = 
-		typ match {
-      case  (IntType) => emitPUSHICONST(in,frame)
+	typ match {
+      case IntType => emitPUSHICONST(in,frame)
+      case FloatType => emitPUSHFCONST(in, frame)
+      case BoolType => emitPUSHICONST(in, frame)
       case StringType => {
         frame.push();
         jvm.emitLDC( in);
