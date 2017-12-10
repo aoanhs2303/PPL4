@@ -96,7 +96,9 @@ class CodeGenVisitor(astTree:AST,env:List[Symbol],dir:File) extends BaseVisitor 
     val methodName = if (isInit) "<init>" else ast.name.name // name cua init la <init> con deo thi ten cua no
     val intype = if (isMain) List(ArrayPointerType(StringType)) else List() // neu ham main thi param la args string[] && con lai thi la List() rong
     val mtype =  FunctionType(intype,returnType) // funtioctype co tham so dau vao va kieu tra ve
-    
+    val output = if(isInit) VoidType else ast.returnType
+
+
     emit.printout(emit.emitMETHOD(methodName, mtype, !isInit, frame)) // emit ra file j nhung cai tren
 
     frame.enterScope(true); // true neu la Label dau tien ; frame la noi luu tru dai khai vay
@@ -137,7 +139,7 @@ class CodeGenVisitor(astTree:AST,env:List[Symbol],dir:File) extends BaseVisitor 
       else visit(x,SubBody(frame,nnenv)))
     
     emit.printout(emit.emitLABEL(frame.getEndLabel(),frame))
-    if (returnType == VoidType) emit.printout(emit.emitRETURN(VoidType,frame));
+    if (output == VoidType) emit.printout(emit.emitRETURN(VoidType,frame));
     emit.printout(emit.emitENDMETHOD(frame));
     frame.exitScope();
      
@@ -147,7 +149,6 @@ class CodeGenVisitor(astTree:AST,env:List[Symbol],dir:File) extends BaseVisitor 
     val subctxt = o.asInstanceOf[SubBody]
     val frame = new Frame(ast.name.name,ast.returnType)
     genMETHOD(ast,subctxt.sym,frame)
-    //SubBody(null,Symbol(ast.name.name,FunctionType(List(),ast.returnType),CName(className))::subctxt.sym)
   }
  
   override def visitVarDecl(ast:VarDecl,o:Any) = {
@@ -158,6 +159,7 @@ class CodeGenVisitor(astTree:AST,env:List[Symbol],dir:File) extends BaseVisitor 
     
     if(frame == null) {
       emit.printout(emit.emitATTRIBUTE(name,mtype,false,null))
+      Symbol(name, mtype, CName(className))
     }
     else {
       val index = frame.getNewIndex
@@ -187,7 +189,6 @@ class CodeGenVisitor(astTree:AST,env:List[Symbol],dir:File) extends BaseVisitor 
           val l = visit(ast.left, new Access(frame, env, true, false)).asInstanceOf[(String, Type)]
           buffer.append(l._1)
 
-
           val r = visit(ast.right, new Access(frame, env, false, false)).asInstanceOf[(String, Type)]
           buffer.append(r._1)
           buffer.append(emit.emitDUPX2(frame))
@@ -196,7 +197,6 @@ class CodeGenVisitor(astTree:AST,env:List[Symbol],dir:File) extends BaseVisitor 
         }
  
         else {
-
           val r = visit(ast.right, new Access(frame, env, false, false)).asInstanceOf[(String, Type)]
           buffer.append(r._1)
           buffer.append(emit.emitDUP(frame))  
@@ -290,21 +290,28 @@ class CodeGenVisitor(astTree:AST,env:List[Symbol],dir:File) extends BaseVisitor 
     (buffer.toString, b._2)
   }
 
-  // override def visitBlock(ast:Block,o:Any) = {
-  //   val sub = o.asInstanceOf[Access]
-  //   val frame = sub.frame
-  //   val sym = sub.sym
-  //   val isFirst = sub.isFirst
+  //***visitStmt***//
+  def visitStmt(ast:Stmt,frame:Frame,sym:List[Symbol]) = {
+    if(ast.isInstanceOf[Expr]) {
+      val env = visit(ast,new Access(frame,sym,false,true)).asInstanceOf[(String,Type)]
+      emit.printout(env._1)
+      if(env._2 != VoidType) emit.printout(emit.emitPOP(frame)) 
+    }
+    else visit(ast,SubBody(frame,sym))
+  }
 
-  //   if(!isFirst) frame.enterScope(false)
-  //   emit.printout(emit.emitLABEL(frame.getStartLabel(),frame))
-
-  //   ast.decl.map(visit(_,null))
-
-  //   ast.stmt.map(visit(_,null))
-  //   emit.printout(emit.emitLABEL(frame.getEndLabel(),frame))
-  //   if(!isFirst) frame.exitScope()
-  // }
+  override def visitBlock(ast:Block,o:Any) = {
+    val sub = o.asInstanceOf[SubBody]
+    val frame = sub.frame
+    val sym = sub.sym
+    frame.enterScope(false) // boi vi khong phai block dau tien
+    val nsym = ast.decl.foldLeft(sym)((lst,x) => visit(x,frame).asInstanceOf[Symbol]::lst)
+    emit.printout(emit.emitLABEL(frame.getStartLabel(),frame))
+    //val isReturn = ast.stmt.map(visitStmt(_,frame,nsym)).exists(_==true)
+    ast.stmt.map(visitStmt(_,frame,nsym))
+    emit.printout(emit.emitLABEL(frame.getEndLabel(),frame))
+    frame.exitScope()
+  }
 
   
   override def visitCallExpr(ast:CallExpr,o:Any) = {
