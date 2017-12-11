@@ -48,7 +48,6 @@ case class SubBody(frame:Frame,sym:List[Symbol])  // sinh ma cho cac phat bien
 
 class Access(val frame:Frame,val sym:List[Symbol],val isLeft:Boolean,val isFirst:Boolean) // sinh ma cho cac bieu thuc
 
-//def visitExpr(ast:Expr,frame:Frame,sym:List[Symbol],isLeft:Boolean=false) = visit(ast,new Access(frame,sym,isLeft,false)).asInstanceOf[(String,Type)]
 
 trait Val
   case class Index(value:Int) extends Val
@@ -291,6 +290,9 @@ class CodeGenVisitor(astTree:AST,env:List[Symbol],dir:File) extends BaseVisitor 
   }
 
   //***visitStmt***//
+  def visitExpr(ast:Expr,frame:Frame,sym:List[Symbol],isLeft:Boolean=false) = {
+    visit(ast,new Access(frame,sym,isLeft,false)).asInstanceOf[(String,Type)]
+  }
   def visitStmt(ast:Stmt,frame:Frame,sym:List[Symbol]) = {
     if(ast.isInstanceOf[Expr]) {
       val env = visit(ast,new Access(frame,sym,false,true)).asInstanceOf[(String,Type)]
@@ -311,6 +313,24 @@ class CodeGenVisitor(astTree:AST,env:List[Symbol],dir:File) extends BaseVisitor 
     ast.stmt.map(visitStmt(_,frame,nsym))
     emit.printout(emit.emitLABEL(frame.getEndLabel(),frame))
     frame.exitScope()
+  }
+
+  override def visitIf(ast:If,o:Any) = {
+    val sub = o.asInstanceOf[SubBody]
+    val frame = sub.frame
+    val sym = sub.sym
+
+    val expr = visitExpr(ast.expr,frame,sym)
+    //visit(ast.expr, new Access(frame,sym,false,false)).asInstanceOf[(String,Type)]
+    emit.printout(expr._1)
+    val trueLabel = frame.getNewLabel()
+    val falseLabel = frame.getNewLabel()
+    emit.printout(emit.emitIFFALSE(falseLabel,frame))
+    visitStmt(ast.thenStmt,frame,sym)
+    emit.printout(emit.emitGOTO(trueLabel,frame))
+    emit.printout(emit.emitLABEL(falseLabel,frame))
+    if(ast.elseStmt != None) visitStmt(ast.elseStmt.get,frame,sym) else false
+    emit.printout(emit.emitLABEL(trueLabel,frame))
   }
 
   
@@ -353,7 +373,6 @@ class CodeGenVisitor(astTree:AST,env:List[Symbol],dir:File) extends BaseVisitor 
         else (emit.emitGETSTATIC(name,mtype,frame),mtype)
       }
     }
-
   }
 
   override def visitArrayCell(ast:ArrayCell, o:Any) = {
