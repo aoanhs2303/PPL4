@@ -64,6 +64,13 @@ class CodeGenVisitor(astTree:AST,env:List[Symbol],dir:File) extends BaseVisitor 
 
       emit.printout(emit.emitPROLOG(className, "java.lang.Object"))     // PROLOG ghi ra ten class
       ast.decl.filter(_.isInstanceOf[VarDecl]).map(visit(_,null)) 
+
+      val listArr = ast.decl.filter(x => x match {
+        case VarDecl(_,ArrayType(_,_)) => true
+        case _ => false    
+      })
+
+
       
       val symlst = ast.decl.foldLeft(env)((lst, x) => {
         val s = x match {
@@ -77,6 +84,9 @@ class CodeGenVisitor(astTree:AST,env:List[Symbol],dir:File) extends BaseVisitor 
       // generate default constructor 
       genMETHOD(
             FuncDecl(Id("<init>"),List(),null,Block(List(),List())),c,new Frame("<init>",VoidType))
+
+      genMETHOD(
+            FuncDecl(Id("<clinit>"),List(),null,Block(listArr,List())),c,new Frame("<clinit>",VoidType))
       emit.emitEPILOG()  
   }
   
@@ -88,19 +98,18 @@ class CodeGenVisitor(astTree:AST,env:List[Symbol],dir:File) extends BaseVisitor 
    
   def genMETHOD(ast:FuncDecl,o:Any,frame:Frame) = {
     
-    val isInit = ast.returnType == null // neu la init function thi cho ra null
+    val isInit = ast.returnType == null && ast.name.name == "<init>"
+    val isClinit = ast.returnType == null && ast.name.name == "<clinit>"
     val isMain = ast.name.name == "main" && ast.param.length == 0 && ast.returnType == VoidType // neu la ham main thi param deo co va return type la void
-    val returnType = if (isInit) VoidType else ast.returnType // neu la ham khoi tao thi VoidType con deo thi tra ve kieu cua ham do
+    val returnType = if (isInit||isClinit) VoidType else ast.returnType // neu la ham khoi tao thi VoidType con deo thi tra ve kieu cua ham do
     val methodName = if (isInit) "<init>" else ast.name.name // name cua init la <init> con deo thi ten cua no
     val intype = if (isMain) List(ArrayPointerType(StringType)) else ast.param.map(_.varType) // neu ham main thi param la args string[] && con lai thi la List() rong
     val mtype =  FunctionType(intype,returnType) // funtioctype co tham so dau vao va kieu tra ve
-    val output = if(isInit) VoidType else ast.returnType
-
 
     emit.printout(emit.emitMETHOD(methodName, mtype, !isInit, frame)) // emit ra file j nhung cai tren
 
     frame.enterScope(true); // true neu la Label dau tien ; frame la noi luu tru dai khai vay
-    
+  
     val glenv = o.asInstanceOf[List[Symbol]] // ep kieu duoc nhan ve List[Symbol]
 
     // Generate code for parameter declarations
@@ -118,16 +127,24 @@ class CodeGenVisitor(astTree:AST,env:List[Symbol],dir:File) extends BaseVisitor 
 
     val body = ast.body.asInstanceOf[Block]
     
-    val nnenv = body.decl.foldLeft(nenv)((lst,x) => visit(x,frame).asInstanceOf[Symbol]::lst)
-   
-
-    emit.printout(emit.emitLABEL(frame.getStartLabel(),frame))
-    
+       
     if (isInit) {
+          emit.printout(emit.emitLABEL(frame.getStartLabel(),frame))
+
       emit.printout(emit.emitREADVAR("this",ClassType(className),0,frame))
       emit.printout(emit.emitINVOKESPECIAL(frame))
+        emit.printout(emit.emitLABEL(frame.getEndLabel(),frame))
+
     }
-    
+    else if (isClinit) {
+      body.decl.map(x=>{
+        val lexeme = className + "." + x.asInstanceOf[VarDecl].variable.name
+        emit.printout(emit.emitINITARRAY(lexeme,x.asInstanceOf[VarDecl].varType,frame))
+    })
+    } 
+    else {
+    val nnenv = body.decl.foldLeft(nenv)((lst,x) => visit(x,frame).asInstanceOf[Symbol]::lst)
+    emit.printout(emit.emitLABEL(frame.getStartLabel(),frame))
     body.stmt.map(x => 
       if(x.isInstanceOf[Expr]){
         val e = visit(x,new Access(frame,nnenv, false, true)).asInstanceOf[(String,Type)]
@@ -135,9 +152,10 @@ class CodeGenVisitor(astTree:AST,env:List[Symbol],dir:File) extends BaseVisitor 
         if(e._2!= VoidType) emit.printout(emit.emitPOP(frame)) 
       }
       else visit(x,SubBody(frame,nnenv)))
-    
-    emit.printout(emit.emitLABEL(frame.getEndLabel(),frame))
-    emit.printout(emit.emitRETURN(output,frame));
+        emit.printout(emit.emitLABEL(frame.getEndLabel(),frame))
+
+    }
+    emit.printout(emit.emitRETURN(returnType,frame));
     emit.printout(emit.emitENDMETHOD(frame));
     frame.exitScope();
      
