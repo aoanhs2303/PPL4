@@ -8,11 +8,6 @@
  */
 
 package mc.codegen
-
-
-
-
-
 import mc.checker._
 import mc.utils._
 import java.io.{PrintWriter, File}
@@ -138,7 +133,7 @@ class CodeGenVisitor(astTree:AST,env:List[Symbol],dir:File) extends BaseVisitor 
       else visit(x,SubBody(frame,nnenv)))
     
     emit.printout(emit.emitLABEL(frame.getEndLabel(),frame))
-    if (output == VoidType) emit.printout(emit.emitRETURN(VoidType,frame));
+    emit.printout(emit.emitRETURN(output,frame));
     emit.printout(emit.emitENDMETHOD(frame));
     frame.exitScope();
      
@@ -342,10 +337,10 @@ class CodeGenVisitor(astTree:AST,env:List[Symbol],dir:File) extends BaseVisitor 
     val loopLabel = frame.getNewLabel()
     val breakLabel = frame.getBreakLabel()
     val continueLabel = frame.getContinueLabel()
-
     visitStmt(ast.expr1,frame,sym)
-    emit.printout(emit.emitLABEL(continueLabel,frame))
 
+    emit.printout(emit.emitLABEL(loopLabel,frame))
+ 
     val expr2 = visitExpr(ast.expr2,frame,sym)
     emit.printout(expr2._1)
     emit.printout(emit.emitIFFALSE(breakLabel,frame))
@@ -357,7 +352,6 @@ class CodeGenVisitor(astTree:AST,env:List[Symbol],dir:File) extends BaseVisitor 
     frame.exitLoop()
   }
  
-
  override def visitDowhile(ast:Dowhile,o:Any) = {
   val sub = o.asInstanceOf[SubBody]
   val frame = sub.frame
@@ -381,6 +375,31 @@ class CodeGenVisitor(astTree:AST,env:List[Symbol],dir:File) extends BaseVisitor 
  }
 
   
+ override def visitBreak(ast:Break.type,o:Any) = {
+  val sub = o.asInstanceOf[SubBody]
+  val frame = sub.frame
+  emit.printout(emit.emitGOTO(frame.getBreakLabel(),frame))
+ }
+
+ override def visitContinue(ast:Continue.type,o:Any) = {
+  val sub = o.asInstanceOf[SubBody]
+  val frame = sub.frame
+  emit.printout(emit.emitGOTO(frame.getContinueLabel(),frame))
+ }
+
+ override def visitReturn(ast:Return,o:Any) = {
+  val sub = o.asInstanceOf[SubBody]
+  val frame = sub.frame
+  val sym = sub.sym
+
+  if(ast.expr != None) {
+    val expr = visitExpr(ast.expr.get,frame,sym)
+    emit.printout(expr._1)
+    if(expr._2 == IntType && frame.returnType == FloatType) emit.printout(emit.emitI2F(frame))
+  }
+  emit.printout(emit.emitGOTO(1,frame)) // tra ve cai dau tien cua cai ham
+ }
+
   override def visitCallExpr(ast:CallExpr,o:Any) = {
     val sub = o.asInstanceOf[Access]
     val frame = sub.frame
@@ -467,5 +486,4 @@ class CodeGenVisitor(astTree:AST,env:List[Symbol],dir:File) extends BaseVisitor 
     (emit.emitPUSHCONST(ast.value.toString, BoolType,frame),BoolType)
   }       
 
-  
 }
