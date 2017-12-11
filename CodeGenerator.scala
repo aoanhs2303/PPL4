@@ -333,6 +333,53 @@ class CodeGenVisitor(astTree:AST,env:List[Symbol],dir:File) extends BaseVisitor 
     emit.printout(emit.emitLABEL(trueLabel,frame))
   }
 
+  override def visitFor(ast:For,o:Any) = {
+    val sub = o.asInstanceOf[SubBody]
+    val frame = sub.frame
+    val sym = sub.sym
+
+    frame.enterLoop()
+    val loopLabel = frame.getNewLabel()
+    val breakLabel = frame.getBreakLabel()
+    val continueLabel = frame.getContinueLabel()
+
+    visitStmt(ast.expr1,frame,sym)
+    emit.printout(emit.emitLABEL(continueLabel,frame))
+
+    val expr2 = visitExpr(ast.expr2,frame,sym)
+    emit.printout(expr2._1)
+    emit.printout(emit.emitIFFALSE(breakLabel,frame))
+    visitStmt(ast.loop,frame,sym)
+    emit.printout(emit.emitLABEL(continueLabel,frame))
+    visitStmt(ast.expr3,frame,sym)
+    emit.printout(emit.emitGOTO(loopLabel,frame))
+    emit.printout(emit.emitLABEL(breakLabel,frame))
+    frame.exitLoop()
+  }
+ 
+
+ override def visitDowhile(ast:Dowhile,o:Any) = {
+  val sub = o.asInstanceOf[SubBody]
+  val frame = sub.frame
+  val sym = sub.sym
+
+  frame.enterLoop()
+  val loopLabel = frame.getNewLabel()
+  val breakLabel = frame.getBreakLabel()
+  val continueLabel = frame.getContinueLabel()
+
+  emit.printout(emit.emitLABEL(loopLabel,frame))
+
+  ast.sl.map(visitStmt(_,frame,sym))
+  emit.printout(emit.emitLABEL(continueLabel,frame))
+  val expr = visitExpr(ast.exp,frame,sym)
+  emit.printout(expr._1)
+  emit.printout(emit.emitIFTRUE(loopLabel,frame))
+  
+  emit.printout(emit.emitLABEL(breakLabel,frame))
+  frame.exitLoop()
+ }
+
   
   override def visitCallExpr(ast:CallExpr,o:Any) = {
     val sub = o.asInstanceOf[Access]
