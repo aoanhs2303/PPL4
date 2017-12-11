@@ -378,37 +378,30 @@ class Emitter(filename:String) {
 		jvm.emitIOR();
 	}
         
-  	def emitREOP( op:String,  in:Type,frame:Frame) =
-	  {
-  		//..., value1, value2 -> ..., result
-		    val result = new StringBuffer();
-       	val labelF = frame.getNewLabel();
-       	val labelO = frame.getNewLabel();
-        //println(in)
-       	frame.pop();
-  		  frame.pop();
-       	op match {
-          case ">" =>   result.append(jvm.emitIFICMPLE(labelF));
-
-          case ">=" =>  result.append(jvm.emitIFICMPLT(labelF));
-
-          case "<" =>  result.append(jvm.emitIFICMPGE(labelF));
-
-          case "<=" =>  result.append(jvm.emitIFICMPGT(labelF));
-
-          case "!=" =>
-                          result.append(jvm.emitIFICMPEQ(labelF))
-
-          case "==" =>  result.append(jvm.emitIFICMPNE(labelF))
-
-        }
-       	result.append(emitPUSHCONST("1", IntType,frame));
-        frame.pop()
-       	result.append(emitGOTO(labelO,frame));
-      	result.append(emitLABEL(labelF,frame));
-       	result.append(emitPUSHCONST("0", IntType,frame));
-       	result.append(emitLABEL(labelO,frame));
-       	result.toString();
+	def emitREOP(op:String,	in:Type,frame:Frame) = {
+		//..., value1, value2 -> ..., result
+		val result = new StringBuffer()
+		val labelF = frame.getNewLabel()
+		val labelO = frame.getNewLabel()
+		frame.pop()
+		frame.pop()
+		val emitif = op match {
+			case ">"  => if(in == IntType) jvm.emitIFICMPLE(labelF) else jvm.emitIFLE(labelF)
+			case ">=" => if(in == IntType) jvm.emitIFICMPLT(labelF) else jvm.emitIFLT(labelF)
+			case "<"  => if(in == IntType) jvm.emitIFICMPGE(labelF) else jvm.emitIFGE(labelF)
+			case "<=" => if(in == IntType) jvm.emitIFICMPGT(labelF) else jvm.emitIFGT(labelF)
+			case "!=" => jvm.emitIFICMPEQ(labelF)
+			case "==" => jvm.emitIFICMPNE(labelF)
+		}
+		if(in == FloatType) result.append(jvm.emitFCMPL())
+		result.append(emitif)
+		result.append(emitPUSHCONST("1", IntType,frame))
+		frame.pop()
+		result.append(emitGOTO(labelO,frame))
+		result.append(emitLABEL(labelF,frame))
+		result.append(emitPUSHCONST("0", IntType,frame))
+		result.append(emitLABEL(labelO,frame))
+		result.toString()
 	}
 def emitRELOP( op:String,  in:Type,trueLabel:Int,falseLabel:Int,frame:Frame) =
     {
@@ -600,11 +593,11 @@ def emitRELOP( op:String,  in:Type,trueLabel:Int,falseLabel:Int,frame:Frame) =
 	def emitRETURN(in:Type,frame:Frame) = 
 	{
 		in match {
-      case (IntType ) => frame.pop();jvm.emitIRETURN()
+      case IntType | BoolType => frame.pop();jvm.emitIRETURN()
+      case FloatType => frame.pop();jvm.emitFRETURN()
 
       case VoidType => jvm.emitRETURN()
-
-      //case ClassType(_) => frame.pop();jvm.emitARETURN()
+      case ArrayPointerType(_)|ArrayType(_,_)|StringType => frame.pop();jvm.emitARETURN()
     }
 	}
 	/** generate code that represents a label	

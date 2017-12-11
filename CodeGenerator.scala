@@ -1,13 +1,17 @@
 /**
- *	@author Nguyen Hua Phung
- *	@version 1.0
- *	23/10/2015
- * 	This file provides a simple version of code generator
+ *  @author Nguyen Hua Phung
+ *  @version 1.0
+ *  23/10/2015
+ *  This file provides a simple version of code generator
  *
-
  */
 
 package mc.codegen
+
+
+
+
+
 import mc.checker._
 import mc.utils._
 import java.io.{PrintWriter, File}
@@ -29,11 +33,11 @@ object CodeGenerator extends Utils {
                     )
     
   
-	def gen(ast:AST,dir:File) = {
+  def gen(ast:AST,dir:File) = {
     val gl = init()     
-		val gc = new CodeGenVisitor(ast,gl,dir)    
-		gc.visit(ast, null);   
-	}
+    val gc = new CodeGenVisitor(ast,gl,dir)    
+    gc.visit(ast, null);   
+  }
 
 }
 
@@ -51,7 +55,7 @@ trait Val
 
 
 class CodeGenVisitor(astTree:AST,env:List[Symbol],dir:File) extends BaseVisitor with Utils {
-	
+  
   val className = "MCClass"
   val path = dir.getPath()
   val emit = new Emitter(path+"/"+className+".j")
@@ -88,7 +92,7 @@ class CodeGenVisitor(astTree:AST,env:List[Symbol],dir:File) extends BaseVisitor 
     val isMain = ast.name.name == "main" && ast.param.length == 0 && ast.returnType == VoidType // neu la ham main thi param deo co va return type la void
     val returnType = if (isInit) VoidType else ast.returnType // neu la ham khoi tao thi VoidType con deo thi tra ve kieu cua ham do
     val methodName = if (isInit) "<init>" else ast.name.name // name cua init la <init> con deo thi ten cua no
-    val intype = if (isMain) List(ArrayPointerType(StringType)) else List() // neu ham main thi param la args string[] && con lai thi la List() rong
+    val intype = if (isMain) List(ArrayPointerType(StringType)) else ast.param.map(_.varType) // neu ham main thi param la args string[] && con lai thi la List() rong
     val mtype =  FunctionType(intype,returnType) // funtioctype co tham so dau vao va kieu tra ve
     val output = if(isInit) VoidType else ast.returnType
 
@@ -339,9 +343,10 @@ class CodeGenVisitor(astTree:AST,env:List[Symbol],dir:File) extends BaseVisitor 
     val continueLabel = frame.getContinueLabel()
     visitStmt(ast.expr1,frame,sym)
 
+    val expr2 = visitExpr(ast.expr2,frame,sym)
     emit.printout(emit.emitLABEL(loopLabel,frame))
  
-    val expr2 = visitExpr(ast.expr2,frame,sym)
+    
     emit.printout(expr2._1)
     emit.printout(emit.emitIFFALSE(breakLabel,frame))
     visitStmt(ast.loop,frame,sym)
@@ -351,70 +356,29 @@ class CodeGenVisitor(astTree:AST,env:List[Symbol],dir:File) extends BaseVisitor 
     emit.printout(emit.emitLABEL(breakLabel,frame))
     frame.exitLoop()
   }
- 
- override def visitDowhile(ast:Dowhile,o:Any) = {
-  val sub = o.asInstanceOf[SubBody]
-  val frame = sub.frame
-  val sym = sub.sym
-
-  frame.enterLoop()
-  val loopLabel = frame.getNewLabel()
-  val breakLabel = frame.getBreakLabel()
-  val continueLabel = frame.getContinueLabel()
-
-  emit.printout(emit.emitLABEL(loopLabel,frame))
-
-  ast.sl.map(visitStmt(_,frame,sym))
-  emit.printout(emit.emitLABEL(continueLabel,frame))
-  val expr = visitExpr(ast.exp,frame,sym)
-  emit.printout(expr._1)
-  emit.printout(emit.emitIFTRUE(loopLabel,frame))
-  
-  emit.printout(emit.emitLABEL(breakLabel,frame))
-  frame.exitLoop()
- }
-
-  
- override def visitBreak(ast:Break.type,o:Any) = {
-  val sub = o.asInstanceOf[SubBody]
-  val frame = sub.frame
-  emit.printout(emit.emitGOTO(frame.getBreakLabel(),frame))
- }
-
- override def visitContinue(ast:Continue.type,o:Any) = {
-  val sub = o.asInstanceOf[SubBody]
-  val frame = sub.frame
-  emit.printout(emit.emitGOTO(frame.getContinueLabel(),frame))
- }
-
- override def visitReturn(ast:Return,o:Any) = {
-  val sub = o.asInstanceOf[SubBody]
-  val frame = sub.frame
-  val sym = sub.sym
-
-  if(ast.expr != None) {
-    val expr = visitExpr(ast.expr.get,frame,sym)
-    emit.printout(expr._1)
-    if(expr._2 == IntType && frame.returnType == FloatType) emit.printout(emit.emitI2F(frame))
-  }
-  emit.printout(emit.emitGOTO(1,frame)) // tra ve cai dau tien cua cai ham
- }
 
   override def visitCallExpr(ast:CallExpr,o:Any) = {
     val sub = o.asInstanceOf[Access]
     val frame = sub.frame
     val env = sub.sym
-    val isFirst = sub.isFirst
+
     val sym = lookup(ast.method.name,env,(x:Symbol)=>x.name).get
     val cname = sym.value.asInstanceOf[CName].value
     val ctype = sym.typ.asInstanceOf[FunctionType]
 
     val buffer = new StringBuffer();
 
-    val in = ast.params.foldLeft(("",List[Type]()))((y,x) => {
-      val (str1,typ1) = visit(x,new Access(frame,env,false,false)).asInstanceOf[(String,Type)]
-      (y._1 + str1,y._2 :+ typ1)
-    })
+    val in = ast.params.foldLeft(("",List[Type](),ctype.asInstanceOf[FunctionType].input.asInstanceOf[List[Type]]))((y,x)=>
+      {
+        val (str1,typ1) = visit(x,new Access(frame,env,false,false)).asInstanceOf[(String,Type)]// isFirst = false
+        if(y._3.head == FloatType && typ1 == IntType)
+          (y._1 + str1 + emit.emitI2F(frame),y._2 :+ FloatType,y._3.tail)
+        else{
+          (y._1 + str1,y._2 :+ typ1,y._3.tail)
+        }
+      }
+    )
+
 
     buffer.append(in._1)  
     buffer.append(emit.emitINVOKESTATIC(cname+"/"+ast.method.name,ctype,frame))   
@@ -462,6 +426,31 @@ class CodeGenVisitor(astTree:AST,env:List[Symbol],dir:File) extends BaseVisitor 
   }
 
 
+  override def visitBreak(ast:Break.type,o:Any) = {
+    val sub = o.asInstanceOf[SubBody]
+    val frame = sub.frame
+    emit.printout(emit.emitGOTO(frame.getBreakLabel(),frame))
+   }
+
+ override def visitContinue(ast:Continue.type,o:Any) = {
+  val sub = o.asInstanceOf[SubBody]
+  val frame = sub.frame
+  emit.printout(emit.emitGOTO(frame.getContinueLabel(),frame))
+ }
+
+ override def visitReturn(ast:Return,o:Any) = {
+  val sub = o.asInstanceOf[SubBody]
+  val frame = sub.frame
+  val sym = sub.sym
+
+  if(ast.expr != None) {
+    val expr = visitExpr(ast.expr.get,frame,sym)
+    emit.printout(expr._1)
+    if(expr._2 == IntType && frame.returnType == FloatType) emit.printout(emit.emitI2F(frame))
+  }
+  emit.printout(emit.emitGOTO(1,frame)) // tra ve cai dau tien cua cai ham
+ }
+
   override def visitIntLiteral(ast:IntLiteral,o:Any) = {
     val ctxt = o.asInstanceOf[Access]
     val frame = ctxt.frame
@@ -477,7 +466,7 @@ class CodeGenVisitor(astTree:AST,env:List[Symbol],dir:File) extends BaseVisitor 
   override def visitStringLiteral(ast:StringLiteral, o:Any) = {
     val ctxt = o.asInstanceOf[Access]
     val frame = ctxt.frame
-    (emit.emitPUSHCONST(ast.value.toString,StringType,frame),StringType)
+    (emit.emitPUSHCONST("\""+ast.value+"\"",StringType,frame),StringType)
   }
 
   override def visitBooleanLiteral(ast:BooleanLiteral,o:Any) = {
@@ -486,4 +475,5 @@ class CodeGenVisitor(astTree:AST,env:List[Symbol],dir:File) extends BaseVisitor 
     (emit.emitPUSHCONST(ast.value.toString, BoolType,frame),BoolType)
   }       
 
+  
 }
