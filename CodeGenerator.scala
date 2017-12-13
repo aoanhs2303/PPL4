@@ -7,15 +7,14 @@
  */
 
 package mc.codegen
-
-
-
-
-
-import mc.checker._
+// import mc.checker._
 import mc.utils._
 import java.io.{PrintWriter, File}
 
+
+case class Symbol(name: String, typ: Type, value: Val)
+
+case class FunctionType(input: List[Type], output: Type) extends Type
 
 object CodeGenerator extends Utils {
   val libName = "io"
@@ -207,6 +206,8 @@ class CodeGenVisitor(astTree:AST,env:List[Symbol],dir:File) extends BaseVisitor 
 
           val r = visit(ast.right, new Access(frame, env, false, false)).asInstanceOf[(String, Type)]
           buffer.append(r._1)
+          if(r._2!=l._2) buffer.append(emit.emitI2F(frame))         
+ 
           buffer.append(emit.emitDUPX2(frame))
           buffer.append(emit.emitASTORE(l._2,frame))
           (buffer.toString, l._2)          
@@ -215,9 +216,10 @@ class CodeGenVisitor(astTree:AST,env:List[Symbol],dir:File) extends BaseVisitor 
         else {
           val r = visit(ast.right, new Access(frame, env, false, false)).asInstanceOf[(String, Type)]
           buffer.append(r._1)
-          buffer.append(emit.emitDUP(frame))  
+          val dup = emit.emitDUP(frame)  
           val l = visit(ast.left, new Access(frame, env, true, false)).asInstanceOf[(String, Type)]              
           if(r._2!=l._2) buffer.append(emit.emitI2F(frame))         
+          buffer.append(dup)
           buffer.append(l._1)
           (buffer.toString, l._2)
         }
@@ -236,37 +238,73 @@ class CodeGenVisitor(astTree:AST,env:List[Symbol],dir:File) extends BaseVisitor 
       }
 
       case "&&" => {
-        val l = visit(ast.left, new Access(frame, env, false, false)).asInstanceOf[(String, Type)]
-        val r = visit(ast.right, new Access(frame,env, false, false)).asInstanceOf[(String, Type)]
+        val l = visitExpr(ast.left,frame,env)
+        val r = visitExpr(ast.right,frame,env)
+        val labelF = frame.getNewLabel();
+        val labelT = frame.getNewLabel();
         buffer.append(l._1)
+        buffer.append(emit.emitIFFALSE(labelF,frame))
         buffer.append(r._1)
-        buffer.append(emit.emitANDOP(frame))
-
-        (buffer.toString, l._2)
+        buffer.append(emit.emitIFFALSE(labelF,frame))
+        buffer.append(emit.emitPUSHCONST("1", IntType,frame))
+        frame.pop()
+        buffer.append(emit.emitGOTO(labelT,frame))
+        buffer.append(emit.emitLABEL(labelF,frame))
+        buffer.append(emit.emitPUSHCONST("0", IntType,frame))
+        buffer.append(emit.emitLABEL(labelT,frame))       
+        (buffer.toString,l._2)
       }
-
       case "||" => {
-        val l = visit(ast.left, new Access(frame, env, false, false)).asInstanceOf[(String, Type)]
-        val r = visit(ast.right, new Access(frame, env, false, false)).asInstanceOf[(String, Type)]
-         buffer.append(l._1)
-         buffer.append(r._1)
-         buffer.append(emit.emitOROP(frame))
-
-        (buffer.toString, l._2)
-      }
+        val l = visitExpr(ast.left,frame,env)
+        val r = visitExpr(ast.right,frame,env)
+        val labelF = frame.getNewLabel();
+        val labelT = frame.getNewLabel();
+        buffer.append(l._1)
+        buffer.append(emit.emitIFTRUE(labelT,frame))
+        buffer.append(r._1)
+        buffer.append(emit.emitIFTRUE(labelT,frame))
+        buffer.append(emit.emitPUSHCONST("0", IntType,frame))
+        frame.pop()
+        buffer.append(emit.emitGOTO(labelF,frame))
+        buffer.append(emit.emitLABEL(labelT,frame))
+        buffer.append(emit.emitPUSHCONST("1", IntType,frame))
+        buffer.append(emit.emitLABEL(labelF,frame)) 
+        (buffer.toString,l._2)
+      } 
 
       case _ => {
         val l = visit(ast.left, new Access(frame, env, false, false)).asInstanceOf[(String, Type)]
         val r = visit(ast.right, new Access(frame, env, false, false)).asInstanceOf[(String, Type)]
-        val optype = if(l._2 == FloatType || r._2 == FloatType) FloatType else IntType
+        val optype = (l._2, r._2) match {
+          case (FloatType,IntType) => {
+            buffer.append(l._1)
+            buffer.append(r._1)
+            buffer.append(emit.emitI2F(frame))
+            FloatType
+          }
+          case (IntType,FloatType) => {
+            buffer.append(l._1)
+            buffer.append(emit.emitI2F(frame))
+            buffer.append(r._1)
+            FloatType
+            
+          }
+          case _ => {
+            buffer.append(l._1)
+            buffer.append(r._1)
+            l._2
+          } 
+        }
+        /*val optype = if(l._2 == FloatType || r._2 == FloatType) FloatType else IntType
         buffer.append(l._1)
         if(l._2 != optype) buffer.append(emit.emitI2F(frame))
         buffer.append(r._1)
-        if(r._2 != optype) buffer.append(emit.emitI2F(frame))
+        if(r._2 != optype) buffer.append(emit.emitI2F(frame))*/
 
         val rtype = ast.op match {
           case ("+" | "-") => buffer.append(emit.emitADDOP(ast.op, optype, frame)); optype
           case ("*" | "/") => buffer.append(emit.emitMULOP(ast.op, optype, frame)); optype
+          case ("==" | "!=") => buffer.append(emit.emitREOP(ast.op,optype,frame)); BoolType
           case _ => buffer.append(emit.emitREOP(ast.op, optype, frame)); BoolType  
         }
 
@@ -364,7 +402,6 @@ class CodeGenVisitor(astTree:AST,env:List[Symbol],dir:File) extends BaseVisitor 
     val expr2 = visitExpr(ast.expr2,frame,sym)
     emit.printout(emit.emitLABEL(loopLabel,frame))
  
-    
     emit.printout(expr2._1)
     emit.printout(emit.emitIFFALSE(breakLabel,frame))
     visitStmt(ast.loop,frame,sym)
@@ -372,6 +409,26 @@ class CodeGenVisitor(astTree:AST,env:List[Symbol],dir:File) extends BaseVisitor 
     visitStmt(ast.expr3,frame,sym)
     emit.printout(emit.emitGOTO(loopLabel,frame))
     emit.printout(emit.emitLABEL(breakLabel,frame))
+    frame.exitLoop()
+  }
+
+  override def visitDowhile(ast:Dowhile,o:Any) = {
+    val sub = o.asInstanceOf[SubBody]
+    val frame = sub.frame
+    val sym = sub.sym   
+  
+    frame.enterLoop()
+    val loopLabel = frame.getNewLabel()
+    val breLabel = frame.getBreakLabel()
+    val conLabel = frame.getContinueLabel() 
+    emit.printout(emit.emitLABEL(loopLabel,frame))
+
+    ast.sl.map(visitStmt(_,frame,sym)).exists(_==true)
+    emit.printout(emit.emitLABEL(conLabel,frame))
+    val e = visitExpr(ast.exp,frame,sym)
+    emit.printout(e._1)
+    emit.printout(emit.emitIFTRUE(loopLabel,frame))
+    emit.printout(emit.emitLABEL(breLabel,frame))
     frame.exitLoop()
   }
 
